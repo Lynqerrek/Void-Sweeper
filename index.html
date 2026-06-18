@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Void Sweeper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#03050a;color:#e2e8f0;
+  font-family:'Space Grotesk',sans-serif;user-select:none;-webkit-user-select:none;touch-action:none}
+:root{
+  --bg:#03050a;--surface:#080d18;--surface2:#0d1525;--border:rgba(255,255,255,0.06);
+  --border2:rgba(255,255,255,0.12);--text:#e2e8f0;--muted:#475569;--dim:#1e293b;
+  --indigo:#5b52f0;--indigo-l:#7c75ff;--rose:#f43f5e;--teal:#14b8a6;--amber:#f59e0b;
+  --mono:'Space Mono',monospace;
+}
+
+/* ── CANVAS ── */
+#gc{position:fixed;inset:0;display:block;cursor:grab}
+#gc.grab{cursor:grabbing}
+
+/* ── SCREENS ── */
+.screen{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.screen.hidden{display:none}
+
+/* ── MAIN MENU ── */
+#menu{background:var(--bg)}
+
+/* scanline texture */
+#menu::before{
+  content:'';position:absolute;inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,.012) 2px,rgba(255,255,255,.012) 4px);
+  pointer-events:none;z-index:0
+}
+
+.menu-grid-bg{
+  position:absolute;inset:0;
+  background-image:
+    linear-gradient(rgba(91,82,240,.06) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(91,82,240,.06) 1px,transparent 1px);
+  background-size:48px 48px;
+  mask-image:radial-gradient(ellipse 80% 70% at 50% 40%,black 40%,transparent 100%);
+  -webkit-mask-image:radial-gradient(ellipse 80% 70% at 50% 40%,black 40%,transparent 100%);
+}
+
+.menu-inner{position:relative;z-index:1;width:min(480px,90vw);display:flex;flex-direction:column;gap:0}
+
+.menu-eyebrow{
+  font-family:var(--mono);font-size:10px;letter-spacing:.25em;
+  color:var(--indigo-l);text-transform:uppercase;margin-bottom:20px;
+  display:flex;align-items:center;gap:10px
+}
+.menu-eyebrow::before,.menu-eyebrow::after{content:'';flex:1;height:1px;background:rgba(91,82,240,.3)}
+
+.menu-title{
+  font-size:clamp(42px,8vw,72px);font-weight:700;letter-spacing:-.03em;
+  line-height:.95;margin-bottom:6px;color:#fff
+}
+.menu-title span{color:var(--indigo-l)}
+
+.menu-sub{
+  font-size:13px;color:var(--muted);margin-bottom:36px;font-weight:400;line-height:1.5
+}
+
+/* saves */
+.saves-label{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--muted);
+  text-transform:uppercase;margin-bottom:10px}
+
+.save-slots{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+
+.save-slot{
+  border:1px solid var(--border);border-radius:8px;padding:14px 16px;
+  cursor:pointer;transition:border-color .15s,background .15s;
+  display:flex;align-items:center;gap:14px;background:rgba(8,13,24,.6);
+  position:relative;overflow:hidden
+}
+.save-slot::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,rgba(91,82,240,0) 0%,rgba(91,82,240,.04) 100%);
+  opacity:0;transition:opacity .15s
+}
+.save-slot:hover{border-color:rgba(91,82,240,.4);background:rgba(91,82,240,.05)}
+.save-slot:hover::before{opacity:1}
+.save-slot:active{transform:scale(.99)}
+
+.save-slot.empty .slot-icon{color:var(--dim)}
+.save-slot.occupied .slot-icon{color:var(--indigo-l)}
+
+.slot-icon{width:32px;height:32px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+
+.slot-info{flex:1;min-width:0}
+.slot-name{font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px}
+.slot-meta{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.05em}
+.save-slot.empty .slot-name{color:var(--muted);font-weight:400}
+
+.slot-action{
+  font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--muted);
+  text-transform:uppercase;padding:4px 8px;border:1px solid var(--border);border-radius:4px;
+  transition:all .12s;white-space:nowrap
+}
+.save-slot:hover .slot-action{border-color:rgba(91,82,240,.4);color:var(--indigo-l)}
+
+.slot-delete{
+  width:24px;height:24px;border-radius:4px;border:1px solid transparent;
+  color:var(--dim);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all .12s;flex-shrink:0;background:none
+}
+.slot-delete:hover{border-color:rgba(244,63,94,.3);color:var(--rose);background:rgba(244,63,94,.08)}
+
+.menu-footer{
+  font-family:var(--mono);font-size:9px;color:var(--dim);text-align:center;
+  letter-spacing:.1em;margin-top:20px
+}
+
+/* ── GAME UI ── */
+#ui{position:fixed;inset:0;pointer-events:none;z-index:10}
+#ui>*{pointer-events:auto}
+
+.panel{background:rgba(8,13,24,.92);border:1px solid var(--border);box-shadow:0 4px 24px rgba(0,0,0,.5)}
+
+/* header */
+#hdr{position:absolute;top:14px;left:50%;transform:translateX(-50%);width:min(92%,560px)}
+#hdr-inner{display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-radius:9px}
+.hdr-left{display:flex;flex-direction:column;gap:2px}
+.hdr-title{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.2em;color:var(--muted)}
+.hdr-slot{font-size:9px;color:var(--dim);letter-spacing:.1em}
+.hdr-stats{display:flex;align-items:center;gap:16px}
+.stat{display:flex;flex-direction:column;align-items:flex-end;gap:1px}
+.stat-l{font-size:7px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim)}
+.stat-v{font-family:var(--mono);font-size:12px}
+.hdiv{width:1px;height:18px;background:var(--border)}
+
+/* side */
+#side{position:absolute;left:14px;top:50%;transform:translateY(-50%)}
+#side-inner{padding:5px;border-radius:9px;display:flex;flex-direction:column;gap:4px}
+.ibtn{
+  width:34px;height:34px;border-radius:6px;
+  background:rgba(255,255,255,.02);border:1px solid var(--border);
+  color:var(--muted);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:background .12s,border-color .12s,color .12s,transform .1s
+}
+.ibtn:hover{background:rgba(255,255,255,.06);border-color:var(--border2);color:#fff}
+.ibtn:active{transform:scale(.92)}
+.ibtn.sep{margin-top:4px;border-top:1px solid var(--border)}
+
+/* mobile mode */
+#mmode{position:absolute;right:14px;top:50%;transform:translateY(-50%)}
+#mmode-inner{padding:5px;border-radius:9px;display:flex;flex-direction:column;gap:5px}
+.mbtn{
+  width:38px;height:38px;border-radius:6px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:2px;border:1px solid;cursor:pointer;
+  font-size:6px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;transition:all .12s
+}
+.mbtn.dig-on{background:var(--indigo);border-color:var(--indigo-l);color:#fff}
+.mbtn.dig-off{background:transparent;border-color:var(--dim);color:var(--muted)}
+.mbtn.flag-on{background:#9f1239;border-color:var(--rose);color:#fff}
+.mbtn.flag-off{background:transparent;border-color:var(--dim);color:var(--muted)}
+@media(min-width:768px){#mmode{display:none}}
+
+/* footer bar */
+#ftr{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);width:min(92%,560px)}
+#ftr-inner{
+  padding:8px 14px;border-radius:9px;display:flex;
+  align-items:center;justify-content:space-between;font-size:10px;color:var(--muted);gap:6px;
+  flex-wrap:wrap
+}
+.hint{display:flex;align-items:center;gap:5px}
+.kbd{font-family:var(--mono);background:rgba(255,255,255,.04);padding:1px 5px;border-radius:3px;font-size:8px}
+.ki{color:#a5b4fc}.kr{color:#fb7185}.kg{color:#34d399}.ka{color:#fbbf24}
+@media(max-width:480px){.donly{display:none}}
+
+/* game over */
+#gover{position:fixed;inset:0;background:rgba(0,0,0,.88);display:flex;align-items:center;
+  justify-content:center;z-index:40;opacity:0;pointer-events:none;transition:opacity .2s}
+#gover.show{opacity:1;pointer-events:auto}
+#go-box{
+  background:rgba(8,13,24,.98);border:1px solid var(--border);box-shadow:0 12px 48px rgba(0,0,0,.7);
+  border-radius:12px;padding:28px 24px;width:min(340px,90vw);text-align:center;
+  transform:translateY(10px);transition:transform .2s
+}
+#gover.show #go-box{transform:translateY(0)}
+.go-ico{
+  width:40px;height:40px;border-radius:8px;border:1px solid rgba(244,63,94,.25);
+  background:rgba(159,18,57,.1);color:var(--rose);display:flex;align-items:center;
+  justify-content:center;margin:0 auto 16px
+}
+.go-t{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.18em;color:var(--rose);margin-bottom:8px}
+.go-s{font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:22px}
+.go-btns{display:flex;flex-direction:column;gap:8px}
+.btn-p{
+  width:100%;padding:10px;background:var(--indigo);border:none;border-radius:7px;color:#fff;
+  font-family:'Space Grotesk',sans-serif;font-size:11px;font-weight:700;letter-spacing:.1em;
+  cursor:pointer;transition:background .12s
+}
+.btn-p:hover{background:var(--indigo-l)}
+.btn-s{
+  width:100%;padding:10px;background:rgba(255,255,255,.02);border:1px solid var(--border);
+  border-radius:7px;color:var(--muted);font-family:'Space Grotesk',sans-serif;
+  font-size:11px;font-weight:600;cursor:pointer;transition:all .12s
+}
+.btn-s:hover{background:rgba(255,255,255,.05);color:var(--text)}
+
+/* save indicator (top-right pulse) */
+#save-indicator{
+  position:fixed;top:14px;right:14px;z-index:20;font-family:var(--mono);font-size:8px;
+  letter-spacing:.1em;color:var(--teal);padding:4px 8px;border-radius:4px;
+  border:1px solid rgba(20,184,166,.2);background:rgba(20,184,166,.06);
+  opacity:0;transition:opacity .3s;pointer-events:none
+}
+#save-indicator.show{opacity:1}
+</style>
+</head>
+<body>
+
+<!-- CANVAS -->
+<canvas id="gc"></canvas>
+
+<!-- ═══════════════════════ MAIN MENU ═══════════════════════ -->
+<div id="menu" class="screen">
+  <div class="menu-grid-bg"></div>
+  <div class="menu-inner">
+    <div class="menu-eyebrow">Void Sweeper</div>
+    <div class="menu-title">CLEAR<br>THE <span>VOID</span></div>
+    <div class="menu-sub">Infinite procedural minefield. Dig, flag, survive.<br>Your grid is saved locally — pick up where you left off.</div>
+
+    <div class="saves-label">Select a save slot</div>
+    <div class="save-slots" id="saveSlots"></div>
+
+    <div class="menu-footer">VOID_SWEEPER v2.1 &nbsp;·&nbsp; SAVES ARE LOCAL TO THIS BROWSER</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ GAME UI ═══════════════════════ -->
+<div id="ui" class="hidden">
+  <div id="hdr">
+    <div id="hdr-inner" class="panel">
+      <div class="hdr-left">
+        <div class="hdr-title">VOID_SWEEPER</div>
+        <div class="hdr-slot" id="slotLabel">SLOT 1</div>
+      </div>
+      <div class="hdr-stats">
+        <div class="stat">
+          <span class="stat-l">Revealed</span>
+          <span class="stat-v" id="revC" style="color:var(--indigo-l)">0</span>
+        </div>
+        <div class="hdiv"></div>
+        <div class="stat">
+          <span class="stat-l">Flags</span>
+          <span class="stat-v" id="flagC" style="color:var(--rose)">0</span>
+        </div>
+        <div class="hdiv"></div>
+        <div class="stat">
+          <span class="stat-l">Pos</span>
+          <span class="stat-v" id="coordD" style="color:var(--teal);font-size:10px">0, 0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="side">
+    <div id="side-inner" class="panel">
+      <button class="ibtn" id="bZI" title="Zoom in">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+      </button>
+      <button class="ibtn" id="bZO" title="Zoom out">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 12H4"/></svg>
+      </button>
+      <button class="ibtn" id="bRC" title="Recenter">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+      </button>
+      <button class="ibtn sep" id="bSAVE" title="Save now" style="color:var(--teal)">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+      </button>
+      <button class="ibtn" id="bMENU" title="Main menu">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="mmode">
+    <div id="mmode-inner" class="panel">
+      <button class="mbtn dig-on" id="bDIG">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5"/></svg>
+        Dig
+      </button>
+      <button class="mbtn flag-off" id="bFLAG">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"/></svg>
+        Flag
+      </button>
+    </div>
+  </div>
+
+  <div id="ftr">
+    <div id="ftr-inner" class="panel">
+      <div class="hint"><span class="kbd ki">L-CLICK</span> Reveal</div>
+      <div class="hdiv"></div>
+      <div class="hint"><span class="kbd kr">R-CLICK</span> Flag</div>
+      <div class="hdiv donly"></div>
+      <div class="hint donly"><span class="kbd kg">DRAG</span> Pan</div>
+      <div class="hdiv donly"></div>
+      <div class="hint donly"><span class="kbd ka">SCROLL</span> Zoom</div>
+      <div class="hdiv donly"></div>
+      <div class="hint donly"><span class="kbd">SPACE</span> Center</div>
+    </div>
+  </div>
+</div>
+
+<!-- SAVE INDICATOR -->
+<div id="save-indicator">SAVED</div>
+
+<!-- GAME OVER -->
+<div id="gover">
+  <div id="go-box">
+    <div class="go-ico">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+    </div>
+    <div class="go-t">GRID_DETONATION</div>
+    <div class="go-s">Singularity triggered. Session halted.<br>Your progress has been recorded.</div>
+    <div class="go-btns">
+      <button class="btn-p" id="bRetry">REINITIALIZE GRID</button>
+      <button class="btn-s" id="bSpect">INSPECT FIELD</button>
+      <button class="btn-s" id="bGoMenu">MAIN MENU</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════
+//  CONSTANTS & CONFIG
+// ═══════════════════════════════════════════════════════════
+const SAVE_KEY  = 'voidSweeper_saves';
+const MAX_SLOTS = 3;
+const DENSITY   = 0.165;
+const MIN_ZOOM  = 36;   // tighter zoom-out limit
+const MAX_ZOOM  = 110;
+const DRAG_THRESH = 5;
+
+// Integer coordinate encoding
+// supports ±500k cells each axis
+const COFF = 500000;
+const CSPAN = 1000001;
+function enc(x,y){ return (x+COFF)*CSPAN+(y+COFF); }
+function decX(k){ return (k/CSPAN|0)-COFF; }
+function decY(k){ return (k%CSPAN)-COFF; }
+
+// ═══════════════════════════════════════════════════════════
+//  SAVE SYSTEM
+// ═══════════════════════════════════════════════════════════
+function loadAllSaves(){
+  try{ return JSON.parse(localStorage.getItem(SAVE_KEY)||'{}'); }
+  catch{ return {}; }
+}
+function persistAllSaves(all){
+  try{ localStorage.setItem(SAVE_KEY,JSON.stringify(all)); }
+  catch(e){ console.error(e); }
+}
+
+function saveGame(slot){
+  const all = loadAllSaves();
+  // Serialise sets as arrays of encoded keys
+  const revArr=[]; for(const k of G.rev) revArr.push(k);
+  const flArr=[]; for(const k of G.flag) flArr.push(k);
+  const exArr=[]; for(const k of G.exp) exArr.push(k);
+  all[slot]={
+    rev: revArr, flag: flArr, exp: exArr,
+    start: G.start, gameOver: G.gameOver,
+    zoom: G.zoom, panX: G.panX, panY: G.panY,
+    revC: G.revC, flagC: G.flagC,
+    ts: Date.now()
+  };
+  persistAllSaves(all);
+  flashSaveIndicator();
+}
+
+function deleteSlot(slot){
+  const all = loadAllSaves();
+  delete all[slot];
+  persistAllSaves(all);
+}
+
+function flashSaveIndicator(){
+  const el = document.getElementById('save-indicator');
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(()=>el.classList.remove('show'),1400);
+}
+
+// Auto-save every 30s and on page hide
+let autoSaveInterval = null;
+function startAutoSave(){
+  stopAutoSave();
+  autoSaveInterval = setInterval(()=>{ if(!G.gameOver) saveGame(activeSlot); },30000);
+}
+function stopAutoSave(){ clearInterval(autoSaveInterval); }
+
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden && activeSlot!=null && !G.gameOver) saveGame(activeSlot);
+});
+window.addEventListener('beforeunload',()=>{
+  if(activeSlot!=null && !G.gameOver) saveGame(activeSlot);
+});
+
+// ═══════════════════════════════════════════════════════════
+//  CANVAS & STATE
+// ═══════════════════════════════════════════════════════════
+const canvas = document.getElementById('gc');
+const ctx    = canvas.getContext('2d',{alpha:false});
+const DPR    = Math.min(window.devicePixelRatio||1,2);
+let W=0,H=0;
+
+// Pre-allocated BFS queue buffer — reused across reveal() calls to avoid
+// allocating an 800,000-element typed array on every click.
+const Q_BUFFER = new Int32Array(800000);
+
+// Active slot
+let activeSlot = null;
+
+// Game state object
+const G = {
+  rev:  new Set(), // encoded keys
+  flag: new Set(),
+  exp:  new Set(),
+  start: null,
+  gameOver: false,
+  zoom: 48, panX:0, panY:0,
+  revC:0, flagC:0
+};
+
+function resetG(){
+  G.rev.clear(); G.flag.clear(); G.exp.clear();
+  G.start=null; G.gameOver=false;
+  G.zoom=48; G.panX=W/2; G.panY=H/2;
+  G.revC=0; G.flagC=0;
+}
+
+function loadSlot(slot){
+  const all = loadAllSaves();
+  const s = all[slot];
+  G.rev.clear(); G.flag.clear(); G.exp.clear();
+  if(s){
+    for(const k of s.rev)  G.rev.add(k);
+    for(const k of s.flag) G.flag.add(k);
+    for(const k of s.exp)  G.exp.add(k);
+    G.start   = s.start;
+    G.gameOver= s.gameOver||false;
+    G.zoom    = s.zoom||48;
+    G.panX    = s.panX!==undefined?s.panX:W/2;
+    G.panY    = s.panY!==undefined?s.panY:W/2;
+    G.revC    = s.revC||G.rev.size;
+    G.flagC   = s.flagC||G.flag.size;
+  } else {
+    G.zoom=48; G.panX=W/2; G.panY=H/2;
+  }
+  rebuildBounds();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DETERMINISTIC MINES
+// ═══════════════════════════════════════════════════════════
+function hash(x,y){
+  let h=Math.imul(x,374761393)+Math.imul(y,668265263);
+  h=Math.imul(h^(h>>>13),1274126177);
+  return (h^(h>>>16))&0x7fffffff;
+}
+const MINE_THRESH = 0x7fffffff*DENSITY;
+
+function isMine(x,y){
+  if(G.start){
+    if(Math.abs(x-G.start.x)<=1&&Math.abs(y-G.start.y)<=1) return false;
+  } else {
+    if(Math.abs(x)<=1&&Math.abs(y)<=1) return false;
+  }
+  return hash(x,y)<MINE_THRESH;
+}
+
+function neighborMines(x,y){
+  return (isMine(x-1,y-1)?1:0)+(isMine(x,y-1)?1:0)+(isMine(x+1,y-1)?1:0)
+        +(isMine(x-1,y  )?1:0)+(isMine(x+1,y  )?1:0)
+        +(isMine(x-1,y+1)?1:0)+(isMine(x,y+1)?1:0)+(isMine(x+1,y+1)?1:0);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PAN BOUNDS
+// ═══════════════════════════════════════════════════════════
+let bMinX=0,bMaxX=0,bMinY=0,bMaxY=0;
+
+function rebuildBounds(){
+  if(G.rev.size===0&&G.flag.size===0){ bMinX=bMaxX=bMinY=bMaxY=0; return; }
+  let mix=Infinity,max=-Infinity,miy=Infinity,may=-Infinity;
+  for(const k of G.rev){const x=decX(k),y=decY(k);if(x<mix)mix=x;if(x>max)max=x;if(y<miy)miy=y;if(y>may)may=y;}
+  for(const k of G.flag){const x=decX(k),y=decY(k);if(x<mix)mix=x;if(x>max)max=x;if(y<miy)miy=y;if(y>may)may=y;}
+  const M=14;bMinX=mix-M;bMaxX=max+M;bMinY=miy-M;bMaxY=may+M;
+}
+
+function clampPan(){
+  const vcx=(W/2-G.panX)/G.zoom, vcy=(H/2-G.panY)/G.zoom;
+  G.panX=W/2-Math.max(bMinX,Math.min(bMaxX,vcx))*G.zoom;
+  G.panY=H/2-Math.max(bMinY,Math.min(bMaxY,vcy))*G.zoom;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  GAME LOGIC
+// ═══════════════════════════════════════════════════════════
+function reveal(sx,sy){
+  if(G.gameOver) return;
+  if(!G.start){ G.start={x:sx,y:sy}; }
+  const k=enc(sx,sy);
+  if(G.rev.has(k)||G.flag.has(k)) return;
+  if(isMine(sx,sy)){ triggerGameOver(sx,sy); return; }
+
+  // BFS — uses pre-allocated typed array queue (Q_BUFFER)
+  let head=0,tail=0;
+  Q_BUFFER[tail++]=sx; Q_BUFFER[tail++]=sy;
+  const vis=new Set(); vis.add(k);
+
+  while(head<tail){
+    const cx=Q_BUFFER[head++],cy=Q_BUFFER[head++];
+    const ck=enc(cx,cy);
+    if(!G.rev.has(ck)){ G.rev.add(ck); G.revC++; }
+    if(G.flag.has(ck)){ G.flag.delete(ck); G.flagC--; }
+
+    if(neighborMines(cx,cy)===0){
+      const nx=cx-1,px=cx+1,ny=cy-1,py=cy+1;
+      // 8 neighbors unrolled
+      let nk;
+      nk=enc(nx,ny);if(!vis.has(nk)&&!G.rev.has(nk)&&!G.flag.has(nk)){vis.add(nk);Q_BUFFER[tail++]=nx;Q_BUFFER[tail++]=ny;}
+      nk=enc(cx,ny);if(!vis.has(nk)&&!G.rev.has(nk)&&!G.flag.has(nk)){vis.add(nk);Q_BUFFER[tail++]=cx;Q_BUFFER[tail++]=ny;}
+      nk=enc(px,ny);if(!vis.has(nk)&&!G.rev.has(nk)&&!G.flag.has(nk)){vis.add(nk);Q_BUFFER[tail++]=px;Q_BUFFER[tail++]=ny;}
+      nk=enc(nx,cy);if(!vis.has(nk)&&!G.rev.has(nk)&&!G.flag.has(nk)){vis.add(nk);Q_BUFFER[tail++]=nx;Q_BUFFER[tail++]=cy;}
+      nk=enc(px,cy);if(!vis.has(nk)&&!G.rev.has(nk)&&!G.flag.has(nk)){vis.add(nk);Q_BUFFER[tail++]=px;Q_BUFFER[tail++]=cy;}
+      nk=enc(nx,py);if(!vis.has(nk)&&!G.rev.has(nk)&&!G.flag.has(nk)){vis.add(nk);Q_BUFFER[tail++]=nx;Q_BUFFER[tail++]=py;}
+      nk=enc(cx,py);if(!vis.has(nk)&&!G.rev.has(nk)&&!G.flag.has(nk)){vis.add(nk);Q_BUFFER[tail++]=cx;Q_BUFFER[tail++]=py;}
+      nk=enc(px,py);if(!vis.has(nk)&&!G.rev.has(nk)&&!G.flag.has(nk)){vis.add(nk);Q_BUFFER[tail++]=px;Q_BUFFER[tail++]=py;}
+    }
+  }
+  rebuildBounds(); clampPan(); updateHUD(); schedDraw();
+}
+
+function chord(x,y){
+  const k=enc(x,y);
+  if(!G.rev.has(k)) return;
+  const need=neighborMines(x,y);
+  if(!need) return;
+  let fc=0;
+  const nx=x-1,px=x+1,ny=y-1,py=y+1;
+  if(G.flag.has(enc(nx,ny)))fc++;if(G.flag.has(enc(x,ny)))fc++;if(G.flag.has(enc(px,ny)))fc++;
+  if(G.flag.has(enc(nx,y)))fc++;if(G.flag.has(enc(px,y)))fc++;
+  if(G.flag.has(enc(nx,py)))fc++;if(G.flag.has(enc(x,py)))fc++;if(G.flag.has(enc(px,py)))fc++;
+  if(fc!==need) return;
+  let boom=false;
+  const ns=[[nx,ny],[x,ny],[px,ny],[nx,y],[px,y],[nx,py],[x,py],[px,py]];
+  for(const[bx,by] of ns){
+    const bk=enc(bx,by);
+    if(!G.rev.has(bk)&&!G.flag.has(bk)){
+      if(isMine(bx,by)){boom=true;G.exp.add(bk);G.gameOver=true;}
+      else reveal(bx,by);
+    }
+  }
+  if(boom) triggerGameOver();
+}
+
+function toggleFlag(x,y){
+  const k=enc(x,y);
+  if(G.rev.has(k)) return;
+  if(G.flag.has(k)){G.flag.delete(k);G.flagC--;}
+  else{G.flag.add(k);G.flagC++;}
+  rebuildBounds(); clampPan(); updateHUD(); schedDraw();
+}
+
+function triggerGameOver(mx,my){
+  G.gameOver=true;
+  if(mx!==undefined) G.exp.add(enc(mx,my));
+  if(activeSlot!=null) saveGame(activeSlot);
+  document.getElementById('gover').classList.add('show');
+  schedDraw();
+}
+
+function updateHUD(){
+  document.getElementById('revC').textContent=G.revC;
+  document.getElementById('flagC').textContent=G.flagC;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RENDERING — optimised with dirty-tile cache
+// ═══════════════════════════════════════════════════════════
+// Palette — computed once
+const PAL={
+  bg:'#03050a',
+  unrev:'#0c1221',
+  unrevH:'#121d35',
+  rev:'#05090f',
+  border:'#040710',
+  num:['','#5b52f0','#0d9488','#e11d48','#c084fc','#ea580c','#2563eb','#db2777','#94a3b8']
+};
+
+let rafPending=false;
+function schedDraw(){
+  if(!rafPending){rafPending=true;requestAnimationFrame(()=>{rafPending=false;draw();});}
+}
+
+// Convert screen coords to grid cell
+function s2c(sx,sy){ return{x:Math.floor((sx-G.panX)/G.zoom),y:Math.floor((sy-G.panY)/G.zoom)}; }
+
+let hoverX=null,hoverY=null;
+
+function draw(){
+  ctx.fillStyle=PAL.bg;
+  ctx.fillRect(0,0,W,H);
+
+  const z=G.zoom;
+  const sc=Math.floor(-G.panX/z)-1;
+  const ec=Math.ceil((W-G.panX)/z)+1;
+  const sr=Math.floor(-G.panY/z)-1;
+  const er=Math.ceil((H-G.panY)/z)+1;
+
+  const pad=Math.max(1,z*0.05);
+  const ds=z-pad*2;
+  const rad=Math.max(2,z*0.08);
+  const fSize=Math.floor(z*0.44);
+
+  ctx.font=`700 ${fSize}px 'Space Mono',monospace`;
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  ctx.lineWidth=1;
+
+  // Track fill style to avoid redundant state changes
+  let lf='',ls='';
+  function sf(c){if(c!==lf){ctx.fillStyle=c;lf=c;}}
+  function ss(c){if(c!==ls){ctx.strokeStyle=c;ls=c;}}
+
+  ss(PAL.border);
+
+  const isGameOver=G.gameOver;
+
+  for(let cx=sc;cx<=ec;cx++){
+    const sx=cx*z+G.panX+pad;
+    for(let cy=sr;cy<=er;cy++){
+      const sy=cy*z+G.panY+pad;
+      const k=enc(cx,cy);
+
+      const isRev=G.rev.has(k);
+      const isFl =G.flag.has(k);
+      const isEx =G.exp.has(k);
+
+      // Background
+      if(isRev){ sf(PAL.rev); }
+      else if(!isGameOver&&hoverX===cx&&hoverY===cy){ sf(PAL.unrevH); }
+      else{ sf(PAL.unrev); }
+
+      ctx.beginPath();
+      ctx.roundRect(sx,sy,ds,ds,rad);
+      ctx.fill();
+      ctx.stroke();
+
+      // Content
+      if(isGameOver&&isMine(cx,cy)&&!isFl){
+        drawMine(ctx,sx+ds/2,sy+ds/2,ds*0.48,isEx);
+      } else if(isFl){
+        drawFlag(ctx,sx+ds/2,sy+ds/2,ds*0.45,isGameOver&&!isMine(cx,cy));
+      } else if(isRev){
+        const n=neighborMines(cx,cy);
+        if(n>0){
+          sf(PAL.num[n]||'#fff');
+          ctx.fillText(n,sx+ds/2,sy+ds/2+1);
+        }
+      }
+    }
+  }
+}
+
+function drawFlag(ctx,cx,cy,s,wrong){
+  ctx.save();ctx.translate(cx,cy);
+  if(wrong){
+    ctx.strokeStyle='#f43f5e';ctx.lineWidth=1.8;
+    ctx.beginPath();ctx.moveTo(-s/2,-s/2);ctx.lineTo(s/2,s/2);
+    ctx.moveTo(s/2,-s/2);ctx.lineTo(-s/2,s/2);ctx.stroke();
+  }
+  ctx.fillStyle='#64748b';ctx.fillRect(-s*.06,-s*.42,s*.12,s*.85);
+  ctx.fillStyle='#475569';
+  ctx.beginPath();ctx.roundRect(-s*.35,s*.38,s*.7,s*.08,1);ctx.fill();
+  ctx.fillStyle='#f43f5e';
+  ctx.beginPath();ctx.moveTo(s*.06,-s*.42);ctx.lineTo(s*.52,-s*.22);ctx.lineTo(s*.06,-s*.02);
+  ctx.closePath();ctx.fill();
+  ctx.restore();
+}
+
+function drawMine(ctx,cx,cy,s,ex){
+  ctx.save();ctx.translate(cx,cy);
+  if(ex){ctx.fillStyle='rgba(244,63,94,0.12)';ctx.beginPath();ctx.arc(0,0,s*1.3,0,Math.PI*2);ctx.fill();}
+  ctx.strokeStyle=ex?'#f43f5e':'#1e293b';ctx.lineWidth=s*.12;ctx.lineCap='round';
+  for(let i=0;i<8;i++){const a=(Math.PI/4)*i;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.cos(a)*s*.65,Math.sin(a)*s*.65);ctx.stroke();}
+  ctx.fillStyle=ex?'#ef4444':'#0f172a';ctx.beginPath();ctx.arc(0,0,s*.4,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=ex?'#fff':'#f43f5e';ctx.beginPath();ctx.arc(-s*.08,-s*.08,s*.09,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  INPUT
+// ═══════════════════════════════════════════════════════════
+let isDrag=false,dsx=0,dsy=0,dMoved=false;
+let mobFlag=false;
+
+canvas.addEventListener('mousedown',e=>{
+  if(e.target!==canvas) return;
+  dsx=e.clientX;dsy=e.clientY;dMoved=false;isDrag=true;
+  canvas.classList.add('grab');
+});
+window.addEventListener('mousemove',e=>{
+  if(isDrag){
+    const dx=e.clientX-dsx,dy=e.clientY-dsy;
+    G.panX+=dx;G.panY+=dy;dsx=e.clientX;dsy=e.clientY;
+    if(Math.abs(dx)+Math.abs(dy)>1) dMoved=true;
+    clampPan();schedDraw();
+  } else {
+    if(document.getElementById('ui').classList.contains('hidden')) return;
+    const c=s2c(e.clientX,e.clientY);
+    if(c.x!==hoverX||c.y!==hoverY){hoverX=c.x;hoverY=c.y;schedDraw();}
+    document.getElementById('coordD').textContent=`${c.x}, ${c.y}`;
+  }
+});
+window.addEventListener('mouseup',e=>{
+  if(!isDrag) return;
+  isDrag=false;canvas.classList.remove('grab');
+  if(!dMoved&&!G.gameOver&&!document.getElementById('ui').classList.contains('hidden')){
+    const c=s2c(e.clientX,e.clientY);
+    if(e.button===2){ toggleFlag(c.x,c.y); }
+    else if(e.button===0){
+      if(mobFlag){ toggleFlag(c.x,c.y); }
+      else if(G.rev.has(enc(c.x,c.y))){ chord(c.x,c.y); }
+      else{ reveal(c.x,c.y); }
+    }
+  }
+});
+canvas.addEventListener('mouseleave',()=>{ if(!isDrag){hoverX=null;hoverY=null;schedDraw();} });
+window.addEventListener('contextmenu',e=>e.preventDefault());
+canvas.addEventListener('dblclick',e=>{
+  if(dMoved) return;
+  const c=s2c(e.clientX,e.clientY);
+  if(!G.gameOver) chord(c.x,c.y);
+});
+
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const f=e.deltaY<0?1.12:0.88;
+  const gx=(e.clientX-G.panX)/G.zoom,gy=(e.clientY-G.panY)/G.zoom;
+  G.zoom=Math.min(Math.max(G.zoom*f,MIN_ZOOM),MAX_ZOOM);
+  G.panX=e.clientX-gx*G.zoom;G.panY=e.clientY-gy*G.zoom;
+  clampPan();schedDraw();
+},{passive:false});
+
+// Touch
+let tSX=0,tSY=0,tMoved=false;
+let pinch=false,pinchD=0,pinchZ=0,pinchCX=0,pinchCY=0;
+let pinchGX=0,pinchGY=0;
+
+canvas.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  if(e.touches.length===1){
+    const t=e.touches[0];tSX=t.clientX;tSY=t.clientY;tMoved=false;isDrag=true;pinch=false;
+  } else if(e.touches.length===2){
+    isDrag=false;pinch=true;
+    const t1=e.touches[0],t2=e.touches[1];
+    pinchD=Math.hypot(t2.clientX-t1.clientX,t2.clientY-t1.clientY);
+    pinchZ=G.zoom;
+    pinchCX=(t1.clientX+t2.clientX)/2;pinchCY=(t1.clientY+t2.clientY)/2;
+    pinchGX=(pinchCX-G.panX)/G.zoom;pinchGY=(pinchCY-G.panY)/G.zoom;
+  }
+},{passive:false});
+
+canvas.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  if(isDrag&&e.touches.length===1){
+    const t=e.touches[0];const dx=t.clientX-tSX,dy=t.clientY-tSY;
+    G.panX+=dx;G.panY+=dy;tSX=t.clientX;tSY=t.clientY;
+    if(Math.abs(dx)+Math.abs(dy)>1) tMoved=true;
+    clampPan();schedDraw();
+  } else if(pinch&&e.touches.length===2){
+    const t1=e.touches[0],t2=e.touches[1];
+    const d=Math.hypot(t2.clientX-t1.clientX,t2.clientY-t1.clientY);
+    G.zoom=Math.min(Math.max(pinchZ*d/pinchD,MIN_ZOOM),MAX_ZOOM);
+    G.panX=pinchCX-pinchGX*G.zoom;G.panY=pinchCY-pinchGY*G.zoom;
+    clampPan();schedDraw();
+  }
+},{passive:false});
+
+canvas.addEventListener('touchend',e=>{
+  e.preventDefault();
+  if(isDrag&&!tMoved&&e.changedTouches.length){
+    const t=e.changedTouches[0];const c=s2c(t.clientX,t.clientY);
+    if(!G.gameOver&&!document.getElementById('ui').classList.contains('hidden')){
+      if(mobFlag) toggleFlag(c.x,c.y);
+      else if(G.rev.has(enc(c.x,c.y))) chord(c.x,c.y);
+      else reveal(c.x,c.y);
+    }
+  }
+  isDrag=false;pinch=false;
+},{passive:false});
+
+// ═══════════════════════════════════════════════════════════
+//  NAVIGATION
+// ═══════════════════════════════════════════════════════════
+function recenter(){
+  if(G.start){G.panX=W/2-G.start.x*G.zoom;G.panY=H/2-G.start.y*G.zoom;}
+  else{G.panX=W/2;G.panY=H/2;}
+  clampPan();schedDraw();
+}
+
+function zoomBtn(f){
+  const gx=(W/2-G.panX)/G.zoom,gy=(H/2-G.panY)/G.zoom;
+  G.zoom=Math.min(Math.max(G.zoom*f,MIN_ZOOM),MAX_ZOOM);
+  G.panX=W/2-gx*G.zoom;G.panY=H/2-gy*G.zoom;
+  clampPan();schedDraw();
+}
+
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();recenter();}
+  if(e.code==='KeyS'&&(e.ctrlKey||e.metaKey)){e.preventDefault();if(activeSlot!=null) saveGame(activeSlot);}
+});
+
+// ═══════════════════════════════════════════════════════════
+//  SCREENS
+// ═══════════════════════════════════════════════════════════
+function showMenu(){
+  stopAutoSave();
+  document.getElementById('menu').classList.remove('hidden');
+  document.getElementById('ui').classList.add('hidden');
+  document.getElementById('gover').classList.remove('show');
+  activeSlot=null;
+  renderMenuSlots();
+}
+
+function showGame(slot, isNew){
+  activeSlot=slot;
+  if(isNew){ resetG(); G.panX=W/2; G.panY=H/2; }
+  else{ loadSlot(slot); }
+  document.getElementById('menu').classList.add('hidden');
+  document.getElementById('ui').classList.remove('hidden');
+  document.getElementById('slotLabel').textContent=`SLOT ${slot+1}`;
+  updateHUD();
+  recenter();
+  startAutoSave();
+  schedDraw();
+  if(G.gameOver) document.getElementById('gover').classList.add('show');
+}
+
+function renderMenuSlots(){
+  const all=loadAllSaves();
+  const container=document.getElementById('saveSlots');
+  container.innerHTML='';
+
+  for(let i=0;i<MAX_SLOTS;i++){
+    const s=all[i];
+    const slot=document.createElement('div');
+    slot.className='save-slot '+(s?'occupied':'empty');
+
+    if(s){
+      const d=new Date(s.ts);
+      const dateStr=d.toLocaleDateString(undefined,{month:'short',day:'numeric'})
+        +' '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
+      const status=s.gameOver?'<span style="color:#f43f5e">DETONATED</span>':'<span style="color:#14b8a6">ACTIVE</span>';
+      slot.innerHTML=`
+        <div class="slot-icon">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        </div>
+        <div class="slot-info">
+          <div class="slot-name">Slot ${i+1} &nbsp;·&nbsp; ${status}</div>
+          <div class="slot-meta">${s.revC||0} revealed &nbsp;·&nbsp; ${s.flagC||0} flags &nbsp;·&nbsp; ${dateStr}</div>
+        </div>
+        <span class="slot-action">Continue</span>
+        <button class="slot-delete" data-slot="${i}" title="Delete save">
+          <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+        </button>`;
+      slot.addEventListener('click',e=>{
+        if(e.target.closest('.slot-delete')) return;
+        showGame(i,false);
+      });
+      const delBtn=slot.querySelector('.slot-delete');
+      delBtn.addEventListener('click',e=>{
+        e.stopPropagation();
+        if(confirm(`Delete Slot ${i+1}? This cannot be undone.`)){
+          deleteSlot(i);renderMenuSlots();
+        }
+      });
+    } else {
+      slot.innerHTML=`
+        <div class="slot-icon">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        </div>
+        <div class="slot-info">
+          <div class="slot-name">Slot ${i+1} — Empty</div>
+          <div class="slot-meta">Start a new game</div>
+        </div>
+        <span class="slot-action">New Game</span>`;
+      slot.addEventListener('click',()=>showGame(i,true));
+    }
+    container.appendChild(slot);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BUTTON WIRING
+// ═══════════════════════════════════════════════════════════
+document.getElementById('bZI').addEventListener('click',()=>zoomBtn(1.25));
+document.getElementById('bZO').addEventListener('click',()=>zoomBtn(0.8));
+document.getElementById('bRC').addEventListener('click',recenter);
+document.getElementById('bSAVE').addEventListener('click',()=>{ if(activeSlot!=null) saveGame(activeSlot); });
+document.getElementById('bMENU').addEventListener('click',()=>{
+  if(activeSlot!=null&&!G.gameOver) saveGame(activeSlot);
+  showMenu();
+});
+
+document.getElementById('bRetry').addEventListener('click',()=>{
+  document.getElementById('gover').classList.remove('show');
+  resetG();G.panX=W/2;G.panY=H/2;
+  rebuildBounds();recenter();updateHUD();schedDraw();
+  if(activeSlot!=null) saveGame(activeSlot);
+  startAutoSave();
+});
+document.getElementById('bSpect').addEventListener('click',()=>{
+  document.getElementById('gover').classList.remove('show');
+});
+document.getElementById('bGoMenu').addEventListener('click',()=>showMenu());
+
+const bDIG=document.getElementById('bDIG'),bFLAG=document.getElementById('bFLAG');
+bDIG.addEventListener('click',()=>{
+  mobFlag=false;bDIG.className='mbtn dig-on';bFLAG.className='mbtn flag-off';
+});
+bFLAG.addEventListener('click',()=>{
+  mobFlag=true;bFLAG.className='mbtn flag-on';bDIG.className='mbtn dig-off';
+});
+
+// ═══════════════════════════════════════════════════════════
+//  RESIZE & BOOT
+// ═══════════════════════════════════════════════════════════
+function resize(){
+  W=window.innerWidth;H=window.innerHeight;
+  canvas.width=W*DPR;canvas.height=H*DPR;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  schedDraw();
+}
+window.addEventListener('resize',()=>{ resize(); clampPan(); schedDraw(); });
+
+resize();
+showMenu();
+</script>
+</body>
+</html>
